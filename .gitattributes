@@ -1,0 +1,2 @@
+* text=auto eol=lf
+plugins/purge/upstream/** -text
