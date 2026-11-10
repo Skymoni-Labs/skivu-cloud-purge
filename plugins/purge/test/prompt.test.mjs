@@ -6,21 +6,7 @@ import {createPromptController,CLOUD_ROLE} from '../prompt-controller.mjs';
 import {openSlot} from '../upstream/lib/table-read.js';
 import {encoded,bytes,sha256} from '../dist/payload.mjs';
 
-const secret='Offline original fixture α — never render this text.';
-const tick=()=>new Promise(setImmediate);
-function fixture(options={}){
- let text=options.text??'',enabled=options.enabled,role=options.role??CLOUD_ROLE,writes=0;
- const seen=[];
- const call=async(method,p)=>{
-  if(method==='context.get')return {roleId:role};
-  if(method==='storage.get')return enabled;
-  if(method==='storage.set'){enabled=p.value;return true;}
-  if(method==='prompt.get')return {roleId:role,text};
-  if(method==='prompt.set'){writes++;text=p.text;return true;}
-  throw Error('Unexpected method');
- };
- return {call,seen,get writes(){return writes;},get text(){return text;},get enabled(){return enabled;},set role(v){role=v;},controller(override=call){return createPromptController(override,secret,s=>seen.push(s));}};
-}
+import {fixture,secret,tick,until} from './fixtures.mjs';
 
 test('payload is exactly the original decoded slot, without printing its body',()=>{
  const raw=Buffer.from(encoded,'base64');
@@ -36,7 +22,7 @@ test('first open injects and confirms the complete readback for 小云',async()=
 test('an acknowledgement cannot show success before the final readback resolves',async()=>{
  const f=fixture();let release;let reads=0;
  const c=f.controller(async(m,p)=>{if(m==='prompt.get'&&++reads===2)return new Promise(r=>release=r);return f.call(m,p);});
- const pending=c.apply();await tick();assert.equal(f.writes,1);assert.equal(c.snapshot().busy,true);assert.equal(f.seen.some(s=>s.phase==='verified'),false);
+ const pending=c.apply();await until(()=>release);assert.equal(f.writes,1);assert.equal(c.snapshot().busy,true);assert.equal(f.seen.some(s=>s.phase==='verified'),false);
  release({roleId:CLOUD_ROLE,text:secret});await pending;assert.equal(c.snapshot().phase,'verified');
 });
 
@@ -56,14 +42,14 @@ test('revoke is verified and remains disabled when the page is reopened',async()
  const writes=f.writes;const reopened=f.controller();await reopened.start();assert.equal(reopened.snapshot().phase,'inactive');assert.equal(f.writes,writes);
 });
 
-test('another role cannot receive the prompt',async()=>{
- const f=fixture({role:'other-role'}),c=f.controller();await c.start();await c.apply();assert.equal(c.snapshot().phase,'wrong_role');assert.equal(f.writes,0);
+test('another role can explicitly receive the prompt',async()=>{
+ const f=fixture({role:'other-role'}),c=f.controller();await c.start();assert.equal(f.writes,0);await c.apply();assert.equal(c.snapshot().phase,'verified');assert.equal(f.writes,1);
 });
 
 test('context changes invalidate an in-flight verification and do not replay writes',async()=>{
  const f=fixture();let release;let reads=0;const c=f.controller(async(m,p)=>{if(m==='prompt.get'&&++reads===2)return new Promise(r=>release=r);return f.call(m,p);});
- const pending=c.apply();await tick();f.role='other-role';await c.contextChanged();release({roleId:CLOUD_ROLE,text:secret});await pending;
- assert.equal(c.snapshot().phase,'unconfirmed');assert.equal(f.writes,1);assert.equal(f.seen.some(s=>s.phase==='verified'),false);
+ const pending=c.apply();await until(()=>release);f.role='other-role';await c.contextChanged();release({roleId:CLOUD_ROLE,text:secret});await pending;
+ assert.equal(c.snapshot().phase,'inactive');assert.equal(c.snapshot().roleId,'other-role');assert.equal(f.writes,1);assert.equal(f.seen.some(s=>s.phase==='verified'),false);
 });
 
 test('same-role host refresh notifications do not invalidate a pending save',async()=>{
@@ -73,7 +59,7 @@ test('same-role host refresh notifications do not invalidate a pending save',asy
 
 test('double clicks cannot issue duplicate injection operations',async()=>{
  const f=fixture();let release;const c=f.controller(async(m,p)=>{if(m==='prompt.set'){await new Promise(r=>release=r);}return f.call(m,p);});
- const first=c.apply();await tick();await c.apply();release();await first;assert.equal(f.writes,1);
+ const first=c.apply();await until(()=>release);await c.apply();release();await first;assert.equal(f.writes,1);
 });
 
 test('host error text and prompt body never enter returned UI state',async()=>{
@@ -95,7 +81,7 @@ test('actual page initializes, injects, and renders only status and controls',as
 });
 
 test('package excludes all prior modules, tools, file access and prompt editors',()=>{
- const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.1.1.skivu.json','utf8'));
+ const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.2.0.skivu.json','utf8'));
  assert.deepEqual(p.manifest.permissions,['prompt','storage']);assert.deepEqual(p.manifest.contributes,{launcher:true,chatActions:[]});
  assert.deepEqual(Object.keys(p.files),['index.html','app.mjs','prompt-controller.mjs','payload.mjs']);
  const html=Buffer.from(p.files['index.html'].base64,'base64').toString('utf8');assert.doesNotMatch(html,/<textarea|<input|<pre|<nav/i);
@@ -104,8 +90,8 @@ test('package excludes all prior modules, tools, file access and prompt editors'
 
 
 test('Skivu owns the displayed maintainer field while the original MIT notice is distributed',()=>{
- const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.1.1.skivu.json','utf8'));
- assert.equal(p.manifest.author,'Skivu');assert.equal(p.manifest.version,'1.1.1');
+ const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.2.0.skivu.json','utf8'));
+ assert.equal(p.manifest.author,'Skivu');assert.equal(p.manifest.version,'1.2.0');
  assert.equal(p.licenseText,fs.readFileSync('upstream/LICENSE','utf8'));
  assert.match(p.licenseText,/Copyright \(c\) 2026 小杨/);
  for(const file of ['index.html','app.mjs','prompt-controller.mjs']){
