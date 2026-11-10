@@ -95,9 +95,21 @@ test('actual page initializes, injects, and renders only status and controls',as
 });
 
 test('package excludes all prior modules, tools, file access and prompt editors',()=>{
- const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.1.0.skivu.json','utf8'));
+ const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.1.1.skivu.json','utf8'));
  assert.deepEqual(p.manifest.permissions,['prompt','storage']);assert.deepEqual(p.manifest.contributes,{launcher:true,chatActions:[]});
  assert.deepEqual(Object.keys(p.files),['index.html','app.mjs','prompt-controller.mjs','payload.mjs']);
  const html=Buffer.from(p.files['index.html'].base64,'base64').toString('utf8');assert.doesNotMatch(html,/<textarea|<input|<pre|<nav/i);
  const app=Buffer.from(p.files['app.mjs'].base64,'base64').toString('utf8');assert.doesNotMatch(app,/console\.|innerHTML|files\.|lab\.call|ai\.generate/);
+});
+
+
+test('Skivu owns the displayed maintainer field while the original MIT notice is distributed',()=>{
+ const p=JSON.parse(fs.readFileSync('dist/skivu-purge-1.1.1.skivu.json','utf8'));
+ assert.equal(p.manifest.author,'Skivu');assert.equal(p.manifest.version,'1.1.1');
+ assert.equal(p.licenseText,fs.readFileSync('upstream/LICENSE','utf8'));
+ assert.match(p.licenseText,/Copyright \(c\) 2026 小杨/);
+ for(const file of ['index.html','app.mjs','prompt-controller.mjs']){
+  const text=Buffer.from(p.files[file].base64,'base64').toString('utf8');
+  assert.doesNotMatch(text,/YuJunZhiXue|小杨|原作/);
+ }
 });
