@@ -1,6 +1,2 @@
 **/node_modules/
 plugins/purge/dist/
-plugins/purge/library.json
-plugins/purge/LICENSE.txt
-android/
-assets/
